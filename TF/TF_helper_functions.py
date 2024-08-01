@@ -67,3 +67,24 @@ class MaskedMSELoss(nn.Module):
         loss = squared_diff.mean()
 
         return loss
+
+def reverse_normalization(normalized_data, medians_per_joint_axis, iqrs_per_joint_axis):
+    original_data = np.empty_like(normalized_data)  # Initialize an array to hold the original data
+
+    # Iterate over each joint and each axis
+    for joint in range(normalized_data.shape[0]):
+        for axis in range(normalized_data.shape[1]):
+            # Retrieve the median and IQR for this joint and axis
+            median = medians_per_joint_axis[joint, axis]
+            iqr = iqrs_per_joint_axis[joint, axis]
+
+            # Retrieve the normalized values for this joint and axis
+            normalized_values = normalized_data[joint, axis]
+
+            # Calculate the original values based on the normalization formula
+            original_values = (normalized_values * iqr) + median
+
+            # Store the original values in the output array
+            original_data[joint, axis] = original_values
+
+    return original_data
