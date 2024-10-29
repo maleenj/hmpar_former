@@ -88,3 +88,73 @@ def reverse_normalization(normalized_data, medians_per_joint_axis, iqrs_per_join
             original_data[joint, axis] = original_values
 
     return original_data
+
+def robust_normalize_data_with_clipping(data, medians_per_joint_axis, iqrs_per_joint_axis, normalized_data, clipping_percentiles=(1, 99)):
+    for joint in range(data.shape[1]):  # For each joint
+        for axis in range(data.shape[2]):  # For each axis (x, y, z)
+            joint_axis_data = data[:, joint, axis]
+            # Determine clipping thresholds based on percentiles
+            lower_threshold, upper_threshold = np.percentile(joint_axis_data, clipping_percentiles)
+            # Clip the data based on thresholds
+            clipped_values = np.clip(joint_axis_data, lower_threshold, upper_threshold)
+            # Normalize the clipped data, avoiding division by zero
+            if iqrs_per_joint_axis[joint, axis] > 0:
+                normalized_values = (clipped_values - medians_per_joint_axis[joint, axis]) / iqrs_per_joint_axis[joint, axis]
+            else:
+                normalized_values = clipped_values  # Keep original values if IQR is 0
+            # Store the normalized values
+            normalized_data[:, joint, axis] = normalized_values
+    return normalized_data
+
+def calculate_combined_statistics(data_list):
+    combined_data = np.concatenate(data_list, axis=0)
+    medians = np.median(combined_data, axis=0)
+    q75, q25 = np.percentile(combined_data, [75, 25], axis=0)
+    iqrs = q75 - q25
+    return medians, iqrs
+
+def process_datasets_with_combined_normalization(datasets, timestamps_list):
+    results = {}
+    pos_list, vel_list, acc_list = [], [], []
+
+    # First pass: calculate velocity and acceleration for each dataset
+    for i, (dataset, timestamps) in enumerate(zip(datasets, timestamps_list), 1):
+        pos, vel, acc = calculate_velocity_acceleration(dataset, timestamps)
+        pos_list.append(pos)
+        vel_list.append(vel)
+        acc_list.append(acc)
+
+    # Calculate combined statistics
+    medians_pos, iqrs_pos = calculate_combined_statistics(pos_list)
+    medians_vel, iqrs_vel = calculate_combined_statistics(vel_list)
+    medians_acc, iqrs_acc = calculate_combined_statistics(acc_list)
+
+    # Second pass: normalize each dataset using the combined statistics
+    for i, (pos, vel, acc) in enumerate(zip(pos_list, vel_list, acc_list), 1):
+        norm_pos = np.empty_like(pos)
+        norm_vel = np.empty_like(vel)
+        norm_acc = np.empty_like(acc)
+
+        norm_pos = robust_normalize_data_with_clipping(pos, medians_pos, iqrs_pos, norm_pos)
+        norm_vel = robust_normalize_data_with_clipping(vel, medians_vel, iqrs_vel, norm_vel)
+        norm_acc = robust_normalize_data_with_clipping(acc, medians_acc, iqrs_acc, norm_acc)
+
+        results[f"dataset{i}_normpos"] = norm_pos
+        results[f"dataset{i}_normvel"] = norm_vel
+        results[f"dataset{i}_normacc"] = norm_acc
+
+        print(f"Calculated and normalized for dataset{i}:")
+        print(f"  Position shape: {norm_pos.shape}")
+        print(f"  Velocity shape: {norm_vel.shape}")
+        print(f"  Acceleration shape: {norm_acc.shape}")
+        print()
+
+    # Store the combined statistics
+    results["combined_medians_pos"] = medians_pos
+    results["combined_iqrs_pos"] = iqrs_pos
+    results["combined_medians_vel"] = medians_vel
+    results["combined_iqrs_vel"] = iqrs_vel
+    results["combined_medians_acc"] = medians_acc
+    results["combined_iqrs_acc"] = iqrs_acc
+
+    return results
